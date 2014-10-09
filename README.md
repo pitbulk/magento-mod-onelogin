@@ -3,6 +3,8 @@ Magento Admin - Onelogin integration (SAML)
 
 Magento module that makes it possible to login to Magento Admin via [Onelogin](http://onelogin.com) Identity provider
 
+This module is based on the [OPSWAY module](https://github.com/opsway/magento-mod-onelogin) and uses the new [Onelogin PHP SAML Toolkit](https://github.com/onelogin/php-saml).
+
 Magento versions support
 ------------------------
 Compatible with Magento CE 1.4+, Magento EE 1.9+
