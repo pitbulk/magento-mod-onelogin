@@ -26,6 +26,12 @@ class OneLogin_Saml2_LogoutResponse
     public $document;
 
     /**
+    * After execute a validation process, if it fails, this var contains the cause
+    * @var string
+    */
+    private $_error;
+
+    /**
      * Constructs a Logout Response object (Initialize params from settings and if provided
      * load the Logout Response.
      *
@@ -37,7 +43,12 @@ class OneLogin_Saml2_LogoutResponse
         $this->_settings = $settings;
         if ($response) {
             $decoded = base64_decode($response);
-            $this->_logoutResponse = gzinflate($decoded);
+            $inflated = @gzinflate($decoded);
+            if ($inflated != false) {
+                $this->_logoutResponse = $inflated;
+            } else {
+                $this->_logoutResponse = $decoded;
+            }
             $this->document = new DOMDocument();
             $this->document = OneLogin_Saml2_Utils::loadXML($this->document, $this->_logoutResponse);
         }
@@ -83,6 +94,7 @@ class OneLogin_Saml2_LogoutResponse
      */
     public function isValid($requestId = null)
     {
+        $this->_error = null;
         try {
 
             $idpData = $this->_settings->getIdPData();
@@ -107,18 +119,18 @@ class OneLogin_Saml2_LogoutResponse
 
                 // Check issuer
                 $issuer = $this->getIssuer();
-                if (empty($issuer) || $issuer != $idPEntityId) {
-                    throw new Exception("Invalid issuer in the Logout Request");
+                if (!empty($issuer) && $issuer != $idPEntityId) {
+                    throw new Exception("Invalid issuer in the Logout Response");
                 }
 
-                $currentURL = OneLogin_Saml2_Utils::getSelfURLNoQuery();
+                $currentURL = OneLogin_Saml2_Utils::getSelfRoutedURLNoQuery();
 
                 // Check destination
                 if ($this->document->documentElement->hasAttribute('Destination')) {
                     $destination = $this->document->documentElement->getAttribute('Destination');
                     if (!empty($destination)) {
                         if (strpos($destination, $currentURL) === false) {
-                            throw new Exception("The LogoutRequest was received at $currentURL instead of $destination");
+                            throw new Exception("The LogoutResponse was received at $currentURL instead of $destination");
                         }
                     }
                 }
@@ -137,10 +149,6 @@ class OneLogin_Saml2_LogoutResponse
                     $signAlg = $_GET['SigAlg'];
                 }
 
-                if ($signAlg != XMLSecurityKey::RSA_SHA1) {
-                    throw new Exception('Invalid signAlg in the recieved Logout Response');
-                }
-
                 $signedQuery = 'SAMLResponse='.urlencode($_GET['SAMLResponse']);
                 if (isset($_GET['RelayState'])) {
                     $signedQuery .= '&RelayState='.urlencode($_GET['RelayState']);
@@ -155,15 +163,24 @@ class OneLogin_Saml2_LogoutResponse
                 $objKey = new XMLSecurityKey(XMLSecurityKey::RSA_SHA1, array('type' => 'public'));
                 $objKey->loadKey($cert, false, true);
 
+                if ($signAlg != XMLSecurityKey::RSA_SHA1) {
+                    try {
+                        $objKey = OneLogin_Saml2_Utils::castKey($objKey, $signAlg, 'public');
+                    } catch (Exception $e) {
+                        throw new Exception('Invalid signAlg in the recieved Logout Response');
+                    }
+                }
+
                 if (!$objKey->verifySignature($signedQuery, base64_decode($_GET['Signature']))) {
                     throw new Exception('Signature validation failed. Logout Response rejected');
                 }
             }
             return true;
         } catch (Exception $e) {
+            $this->_error = $e->getMessage();
             $debug = $this->_settings->isDebugActive();
             if ($debug) {
-                echo $e->getMessage();
+                echo $this->_error;
             }
             return false;
         }
@@ -223,5 +240,14 @@ LOGOUTRESPONSE;
     {
         $deflatedResponse = gzdeflate($this->_logoutResponse);
         return base64_encode($deflatedResponse);
+    }
+
+    /* After execute a validation process, if fails this method returns the cause.
+     *
+     * @return string Cause 
+     */
+    public function getError()
+    {
+        return $this->_error;
     }
 }
